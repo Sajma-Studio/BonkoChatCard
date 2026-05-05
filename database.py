@@ -8,7 +8,7 @@ class Database:
 
     def create_tables(self):
         with self.conn.cursor() as cursor:
-            # Створюємо таблицю користувачів
+            # Створюємо таблицю користувачів (BIGINT для великих ID Телеграма)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id BIGINT PRIMARY KEY,
