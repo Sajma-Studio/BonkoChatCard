@@ -7,21 +7,16 @@ from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from database import Database
 
-# --- СЕРВЕР ДЛЯ RENDER ---
 app = Flask('')
 @app.route('/')
 def home(): return "Sajma Studio Bot is alive!"
-
 def run(): app.run(host='0.0.0.0', port=10000)
 def keep_alive():
-    t = threading.Thread(target=run)
-    t.daemon = True
-    t.start()
+    t = threading.Thread(target=run); t.daemon = True; t.start()
 
-# --- НАЛАШТУВАННЯ ---
 TOKEN = "8161816299:AAG_x1WArl0oQviMYF77UChNJJ4uygdH7YM"
-MY_ID = 7518373450  # Макс (Розробник)
-OWNER_ID = 6810492221
+MY_ID = 7518373450 #
+OWNER_ID = 6810492221 #
 COOLDOWN = 60
 
 bot = Bot(token=TOKEN)
@@ -29,76 +24,95 @@ dp = Dispatcher()
 db = Database("db.sqlite")
 
 def get_main_keyboard():
-    keyboard = ReplyKeyboardMarkup(
+    return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="🃏 Картка"), KeyboardButton(text="👤 Профіль")]],
-        resize_keyboard=True,
-        input_field_placeholder="Обери дію..."
+        resize_keyboard=True
     )
-    return keyboard
-
-# --- ОБРОБНИКИ ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("Привіт! Тисни на кнопки, щоб грати.", reply_markup=get_main_keyboard())
+    await message.answer("Привіт від Sajma Studio!", reply_markup=get_main_keyboard())
 
 @dp.message(F.text)
 async def handle_msg(message: types.Message):
-    # АДМІН-КОМАНДА: додати ID Ім'я
-    if message.from_user.id == MY_ID and message.text.startswith("додати"):
-        try:
-            parts = message.text.split(" ", 2)
-            db.manual_add_user(int(parts[1]), parts[2])
-            await message.reply(f"✅ Додано: {parts[2]} ({parts[1]})")
-        except:
-            await message.reply("Формат: `додати 123456 Ім'я`")
-        return
+    user_id = message.from_user.id
+    
+    # АДМІН-КОМАНДИ
+    if user_id == MY_ID:
+        if message.text.startswith("додати"):
+            try:
+                p = message.text.split(" ", 2)
+                db.manual_add_user(int(p[1]), p[2])
+                await message.reply(f"✅ Додано в базу: {p[2]}")
+            except: await message.reply("Формат: `додати ID Ім'я`")
+            return
+        
+        if message.text.startswith("очистити"):
+            try:
+                target_id = int(message.text.split(" ")[1])
+                db.reset_user(target_id)
+                await message.reply(f"🧹 Профіль {target_id} повністю очищено!")
+            except: await message.reply("Формат: `очистити ID`")
+            return
 
-    # КНОПКИ
     if message.text == "🃏 Картка":
         await get_card(message)
     elif message.text == "👤 Профіль":
-        coins, msgs = db.get_user_data(message.from_user.id)
-        total_players = db.get_user_stats()
+        coins, msgs = db.get_user_data(user_id)
+        total_in_db = db.get_total_players()
+        collected = db.get_total_collected(user_id)
+        stats = db.get_user_collection_stats(user_id)
+        
         text = (
             f"👤 **Твій профіль:**\n\n"
-            f"💰 Баланс: `{coins}` монет\n"
+            f"💰 Баланс: `{coins}`\n"
             f"✉️ Повідомлень: `{msgs}`\n"
-            f"🃏 Зібрано карток: `0/{total_players}`\n\n"
+            f"🃏 Зібрано: `{collected}/{total_in_db}`\n\n"
             f"✨ **Колекція:**\n"
-            f"⚪️ Звичайні: `0` | 🔵 Рідкісні: `0` | 🟣 Епічні: `0` | 🟡 Лег: `0`"
+            f"⚪️ Звичайні: `{stats.get('⚪️ ЗВИЧАЙНА', 0)}` | 🔵 Рідкісні: `{stats.get('🔵 РІДКІСНА', 0)}`\n"
+            f"🟣 Епічні: `{stats.get('🟣 ЕПІЧНА', 0)}` | 🟡 Легендарні: `{stats.get('🟡 ЛЕГЕНДАРНА', 0)}`"
         )
         await message.reply(text, parse_mode="Markdown")
-    
-    # Реєстрація активності
+
     if not message.text.startswith('/'):
-        db.update_user(message.from_user.id, message.from_user.full_name)
+        db.update_user(user_id, message.from_user.full_name)
 
 async def get_card(message: types.Message):
-    user_id = message.from_user.id
+    uid = message.from_user.id
     now = time.time()
-    if now - db.get_last_card_time(user_id) < COOLDOWN:
-        await message.reply(f"⏳ Зачекай {int(COOLDOWN - (now - db.get_last_card_time(user_id)))} сек.!")
+    
+    # БЕЗ КУЛДАУНА ДЛЯ ТЕБЕ (MY_ID)
+    if uid != MY_ID and (now - db.get_last_card_time(uid) < COOLDOWN):
+        await message.reply(f"⏳ Зачекай {int(COOLDOWN - (now - db.get_last_card_time(uid)))} сек.")
         return
 
     target = db.get_random_user()
-    if not target:
-        await message.reply("База порожня!"); return
-
+    if not target: return
     tid, tname = target
-    if tid == MY_ID: rarity, bonus = "🛠 УНІКАЛЬНА (Розробник)", 100
-    elif tid == OWNER_ID: rarity, bonus = "👑 КОРОЛІВСЬКА (Власник)", 100
-    else: rarity, bonus = db.get_rarity_info(tid)
 
-    db.add_coins(user_id, bonus)
-    db.set_last_card_time(user_id, now)
-    
+    # Рідкість
+    import random
+    r = random.random()
+    if tid == MY_ID: rarity, bonus = "🛠 УНІКАЛЬНА", 100
+    elif r < 0.05: rarity, bonus = "🟡 ЛЕГЕНДАРНА", 50
+    elif r < 0.15: rarity, bonus = "🟣 ЕПІЧНА", 30
+    elif r < 0.40: rarity, bonus = "🔵 РІДКІСНА", 15
+    else: rarity, bonus = "⚪️ ЗВИЧАЙНА", 5
+
+    db.add_coins(uid, bonus)
+    db.add_to_collection(uid, tid, rarity) # Зберігаємо в колекцію
+    db.set_last_card_time(uid, now)
+
+    # ФОТО (фікс для ручного додавання)
+    photo = "https://i.imgur.com/KzS6CqC.png"
     try:
-        photos = await bot.get_user_profile_photos(tid, limit=1)
-        photo = photos.photos[0][-1].file_id if photos.total_count > 0 else "https://i.imgur.com/KzS6CqC.png"
-    except: photo = "https://i.imgur.com/KzS6CqC.png"
+        # Намагаємося отримати фото саме за ID
+        p_photos = await bot.get_user_profile_photos(tid, limit=1)
+        if p_photos.total_count > 0:
+            photo = p_photos.photos[0][-1].file_id
+    except: pass 
 
-    caption = f"🌟 **Картка: {tname}**\n✨ Рідкість: {rarity}\n💰 Бонус: +{bonus} монет"
+    caption = f"🌟 **Картка: {tname}**\n✨ Рідкість: {rarity}\n💰 Бонус: +{bonus}"
     await message.answer_photo(photo, caption=caption, parse_mode="Markdown")
 
 async def main():
