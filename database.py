@@ -2,55 +2,74 @@ import sqlite3
 
 class Database:
     def __init__(self, db_file):
-        self.connection = sqlite3.connect(db_file)
-        self.cursor = self.connection.cursor()
-        self.create_table()
+        self.conn = sqlite3.connect(db_file, check_same_thread=False)
+        self.create_tables()
 
-    def create_table(self):
-        with self.connection:
-            self.cursor.execute("""
+    def create_tables(self):
+        cursor = self.conn.cursor()
+        # Таблиця користувачів
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                msg_count INTEGER DEFAULT 0,
+                id INTEGER PRIMARY KEY,
+                name TEXT,
                 coins INTEGER DEFAULT 0,
+                messages INTEGER DEFAULT 0,
                 last_card_time REAL DEFAULT 0
-            )""")
+            )
+        """)
+        self.conn.commit()
 
-    def update_user(self, user_id, username):
-        with self.connection:
-            self.cursor.execute("""
-            INSERT INTO users (user_id, username, msg_count) 
-            VALUES (?, ?, 1)
-            ON CONFLICT(user_id) DO UPDATE SET 
-                msg_count = msg_count + 1,
-                username = EXCLUDED.username
-            """, (user_id, username))
+    def update_user(self, user_id, name):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if cursor.fetchone():
+            cursor.execute("UPDATE users SET messages = messages + 1, name = ? WHERE id = ?", (name, user_id))
+        else:
+            cursor.execute("INSERT INTO users (id, name, messages) VALUES (?, ?, 1)", (user_id, name))
+        self.conn.commit()
 
-    def add_coins(self, user_id, amount):
-        with self.connection:
-            self.cursor.execute("UPDATE users SET coins = coins + ? WHERE user_id = ?", (amount, user_id))
+    def manual_add_user(self, user_id, name):
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user_id, name))
+        self.conn.commit()
 
     def get_user_data(self, user_id):
-        res = self.cursor.execute("SELECT coins, msg_count FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT coins, messages FROM users WHERE id = ?", (user_id,))
+        res = cursor.fetchone()
         return res if res else (0, 0)
 
-    def get_rarity_info(self, target_id):
-        users = self.cursor.execute("SELECT user_id FROM users ORDER BY msg_count DESC").fetchall()
-        user_ids = [u[0] for u in users]
-        if target_id not in user_ids: return "⚪ Звичайна", 5
-        rank = user_ids.index(target_id) + 1
-        if rank == 1: return "💎 ЛЕГЕНДАРНА", 50
-        elif 2 <= rank <= 5: return "🔥 ЕПІЧНА", 10
-        else: return "⚪ Звичайна", 5
+    def get_user_stats(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        return cursor.fetchone()[0]
 
     def get_random_user(self):
-        return self.cursor.execute("SELECT user_id, username FROM users ORDER BY RANDOM() LIMIT 1").fetchone()
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, name FROM users ORDER BY RANDOM() LIMIT 1")
+        return cursor.fetchone()
+
+    def add_coins(self, user_id, amount):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET coins = coins + ? WHERE id = ?", (amount, user_id))
+        self.conn.commit()
 
     def get_last_card_time(self, user_id):
-        res = self.cursor.execute("SELECT last_card_time FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT last_card_time FROM users WHERE id = ?", (user_id,))
+        res = cursor.fetchone()
         return res[0] if res else 0
 
-    def set_last_card_time(self, user_id, t):
-        with self.connection:
-            self.cursor.execute("UPDATE users SET last_card_time = ? WHERE user_id = ?", (t, user_id))
+    def set_last_card_time(self, user_id, timestamp):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET last_card_time = ? WHERE id = ?", (timestamp, user_id))
+        self.conn.commit()
+
+    def get_rarity_info(self, user_id):
+        # Проста логіка рідкості (можна ускладнити)
+        import random
+        r = random.random()
+        if r < 0.05: return "🟡 ЛЕГЕНДАРНА", 50
+        if r < 0.15: return "🟣 ЕПІЧНА", 30
+        if r < 0.40: return "🔵 РІДКІСНА", 15
+        return "⚪️ ЗВИЧАЙНА", 5
