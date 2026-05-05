@@ -18,7 +18,7 @@ def keep_alive():
 # --- КОНФІГУРАЦІЯ ---
 TOKEN = "8161816299:AAG_x1WArl0oQviMYF77UChNJJ4uygdH7YM"
 MY_ID = 7518373450 
-DB_URL = "ВСТАВ_ТУТ_EXTERNAL_DATABASE_URL" # Сюди встав посилання, що починається на postgres://
+DB_URL = "postgresql://sajmastudio_user:rO7AUee4Nw5glwSAynGNhq2DSycDbkDx@dpg-d7stl1beo5us73eqma5g-a.oregon-postgres.render.com/sajmastudio" # Сюди встав посилання, що починається на postgres://
 COOLDOWN = 60
 
 bot = Bot(token=TOKEN)
