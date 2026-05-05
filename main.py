@@ -17,7 +17,7 @@ def keep_alive():
 TOKEN = "8161816299:AAG_x1WArl0oQviMYF77UChNJJ4uygdH7YM"
 MY_ID = 7518373450 #
 OWNER_ID = 6810492221 #
-COOLDOWN = 60
+COOLDOWN = 180
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
