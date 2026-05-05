@@ -1,16 +1,32 @@
 import asyncio
 import time
+import threading
+from flask import Flask
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
 from database import Database
 
-# --- НАЛАШТУВАННЯ ---
+# --- ФІКТИВНИЙ СЕРВЕР ДЛЯ RENDER ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Sajma Studio Bot is running!"
+
+def run():
+    # Render використовує порт 10000 за замовчуванням
+    app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = threading.Thread(target=run)
+    t.daemon = True
+    t.start()
+
+# --- НАЛАШТУВАННЯ БОТА ---
 TOKEN = "8161816299:AAG_x1WArl0oQviMYF77UChNJJ4uygdH7YM"
 MY_ID = 7518373450
 OWNER_ID = 6810492221
 COOLDOWN = 60
 
-# На Render файл бази даних буде лежати в тій же папці, що і код
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 db = Database("db.sqlite")
@@ -29,8 +45,8 @@ async def handle_msg(message: types.Message):
 async def get_card(message: types.Message):
     user_id = message.from_user.id
     now = time.time()
-
     last_time = db.get_last_card_time(user_id)
+    
     if now - last_time < COOLDOWN:
         remains = int(COOLDOWN - (now - last_time))
         await message.reply(f"⏳ Зачекай ще {remains} сек.!")
@@ -42,7 +58,6 @@ async def get_card(message: types.Message):
         return
 
     tid, tname = target
-
     if tid == MY_ID:
         rarity, bonus = "🛠 УНІКАЛЬНА (Розробник)", 100
     elif tid == OWNER_ID:
@@ -56,10 +71,7 @@ async def get_card(message: types.Message):
 
     try:
         user_photos = await bot.get_user_profile_photos(tid, limit=1)
-        if user_photos.total_count > 0:
-            photo = user_photos.photos[0][-1].file_id
-        else:
-            photo = "https://i.imgur.com/KzS6CqC.png"
+        photo = user_photos.photos[0][-1].file_id if user_photos.total_count > 0 else "https://i.imgur.com/KzS6CqC.png"
     except Exception:
         photo = "https://i.imgur.com/KzS6CqC.png"
 
@@ -69,10 +81,11 @@ async def get_card(message: types.Message):
         f"💰 Бонус: +{bonus} монет\n"
         f"💳 Твій баланс: {new_coins} 🪙"
     )
-
     await message.answer_photo(photo=photo, caption=caption, parse_mode="Markdown")
 
 async def main():
+    # Запускаємо вебсервер у фоновому потоці
+    keep_alive()
     print("Бот Sajma Studio запущений!")
     await dp.start_polling(bot)
 
