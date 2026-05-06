@@ -8,7 +8,7 @@ class Database:
 
     def create_tables(self):
         with self.conn.cursor() as cursor:
-            # Створюємо таблицю користувачів (BIGINT для великих ID Телеграма)
+            # Таблиця користувачів
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id BIGINT PRIMARY KEY,
@@ -18,7 +18,7 @@ class Database:
                     last_card_time DOUBLE PRECISION DEFAULT 0
                 )
             """)
-            # Створюємо таблицю колекції зібраних карток
+            # Таблиця колекції
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS collection (
                     owner_id BIGINT,
@@ -28,6 +28,22 @@ class Database:
                 )
             """)
             self.conn.commit()
+
+    # --- НОВІ МЕТОДИ ДЛЯ ОНОВЛЕННЯ ---
+
+    def get_top_rich(self, limit=10):
+        """Отримує список найбагатших гравців"""
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT name, coins FROM users ORDER BY coins DESC LIMIT %s", (limit,))
+            return cursor.fetchall()
+
+    def set_coins(self, user_id, amount):
+        """Встановлює конкретну кількість монет (для адмінів)"""
+        with self.conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET coins = %s WHERE id = %s", (amount, user_id))
+            self.conn.commit()
+
+    # --- ІСНУЮЧІ МЕТОДИ (БЕЗ ЗМІН) ---
 
     def update_user(self, user_id, name):
         with self.conn.cursor() as cursor:
