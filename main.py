@@ -1,16 +1,17 @@
 import asyncio
 import time
 import threading
+import random
 from flask import Flask
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from database import Database
 
-# Сервер для підтримки життя на Render
+# Сервер для Render
 app = Flask('')
 @app.route('/')
-def home(): return "Sajma Studio Bot is alive!"
+def home(): return "Привіт!"
 def run(): app.run(host='0.0.0.0', port=10000)
 def keep_alive():
     t = threading.Thread(target=run); t.daemon = True; t.start()
@@ -25,75 +26,100 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 db = Database(DB_URL)
 
-def get_main_keyboard():
+# --- КЛАВІАТУРИ ---
+def get_main_keyboard(user_id):
+    buttons = [
+        [KeyboardButton(text="Картка"), KeyboardButton(text="Профіль")],
+        [KeyboardButton(text="Кейси"), KeyboardButton(text="ТОП")]
+    ]
+    if user_id == MY_ID:
+        buttons.append([KeyboardButton(text="Адмін-меню")])
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+def get_cases_keyboard():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🃏 Картка"), KeyboardButton(text="👤 Профіль")]],
-        resize_keyboard=True
+        keyboard=[
+            [KeyboardButton(text="⚪️ Звичайний (50 💰)"), KeyboardButton(text="🔵 Рідкісний (150 💰)")],
+            [KeyboardButton(text="Назад")]
+        ], resize_keyboard=True
     )
+
+# --- ОБРОБНИКИ ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("Sajma Studio вітає тебе!", reply_markup=get_main_keyboard())
+    db.update_user(message.from_user.id, message.from_user.full_name)
+    await message.answer("Sajma Studio вітає тебе! Обирай дію:", reply_markup=get_main_keyboard(message.from_user.id))
 
-@dp.message(F.text)
-async def handle_msg(message: types.Message):
-    user_id = message.from_user.id
+@dp.message(F.text == "Профіль")
+async def show_profile(message: types.Message):
+    uid = message.from_user.id
+    coins, msgs = db.get_user_data(uid)
+    collected = db.get_total_collected(uid)
+    total_in_db = db.get_total_players()
+    stats = db.get_user_collection_stats(uid)
     
-    # Адмін-панель (Тільки для тебе)
-    if user_id == MY_ID:
-        if message.text.startswith("додати"):
-            try:
-                p = message.text.split(" ", 2)
-                db.manual_add_user(int(p[1]), p[2])
-                await message.reply(f"✅ Додано: {p[2]}")
-            except: await message.reply("Формат: `додати ID Ім'я`")
-            return
-        
-        if message.text.startswith("очистити"):
-            try:
-                target_id = int(message.text.split(" ")[1])
-                db.reset_user(target_id)
-                await message.reply(f"🧹 Профіль {target_id} очищено.")
-            except: await message.reply("Формат: `очистити ID`")
-            return
+    text = (
+        f"👤 **Профіль: {message.from_user.full_name}**\n"
+        f"⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
+        f"💰 Баланс: `{coins}`\n"
+        f"✉️ Повідомлень: `{msgs}`\n"
+        f"🃏 Колекція: `{collected}/{total_in_db}`\n\n"
+        f"✨ **Рідкості:**\n"
+        f"⚪️ Звичайні: `{stats.get('⚪️ ЗВИЧАЙНА', 0)}` | 🔵 Рідкісні: `{stats.get('🔵 РІДКІСНА', 0)}`\n"
+        f"🟣 Епічні: `{stats.get('🟣 ЕПІЧНА', 0)}` | 🟡 Легендарні: `{stats.get('🟡 ЛЕГЕНДАРНА', 0)}`"
+    )
+    await message.reply(text, parse_mode="Markdown")
 
-    if message.text == "🃏 Картка":
-        await get_card(message)
-    elif message.text == "👤 Профіль":
-        coins, msgs = db.get_user_data(user_id)
-        total_in_db = db.get_total_players()
-        collected = db.get_total_collected(user_id)
-        stats = db.get_user_collection_stats(user_id)
-        
-        text = (
-            f"👤 **Твій профіль:**\n\n"
-            f"💰 Баланс: `{coins}`\n"
-            f"✉️ Повідомлень: `{msgs}`\n"
-            f"🃏 Зібрано: `{collected}/{total_in_db}`\n\n"
-            f"✨ **Рідкості:**\n"
-            f"⚪️ Звичайні: `{stats.get('⚪️ ЗВИЧАЙНА', 0)}` | 🔵 Рідкісні: `{stats.get('🔵 РІДКІСНА', 0)}`\n"
-            f"🟣 Епічні: `{stats.get('🟣 ЕПІЧНА', 0)}` | 🟡 Легендарні: `{stats.get('🟡 ЛЕГЕНДАРНА', 0)}`"
-        )
-        await message.reply(text, parse_mode="Markdown")
+@dp.message(F.text == "ТОП")
+async def show_top(message: types.Message):
+    top_list = db.get_top_rich(limit=10) # Додай цей метод в БД
+    if not top_list: return await message.answer("🏆 Список порожній!")
+    
+    text = "🏆 **ТОП-10 БАГАТІЇВ:**\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
+    for i, (name, balance) in enumerate(top_list, 1):
+        icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "👤"
+        text += f"{icon} {i}. {name} — `{balance}` 💰\n"
+    await message.answer(text, parse_mode="Markdown")
 
-    if not message.text.startswith('/'):
-        db.update_user(user_id, message.from_user.full_name)
+@dp.message(F.text == "Картка")
+async def give_card_handler(message: types.Message):
+    await get_card(message)
+
+@dp.message(F.text == "Кейси")
+async def cases_menu(message: types.Message):
+    await message.answer("Оберіть кейс для відкриття:", reply_markup=get_cases_keyboard())
+
+@dp.message(F.text == "Назад")
+async def go_back(message: types.Message):
+    await message.answer("Повертаємось...", reply_markup=get_main_keyboard(message.from_user.id))
+
+# --- АДМІН ПАНЕЛЬ ---
+@dp.message(F.text == "🛠 Адмін-меню")
+async def admin_panel(message: types.Message):
+    if message.from_user.id != MY_ID: return
+    text = (
+        "🛠 **АДМІН-КЕРУВАННЯ**\n\n"
+        "`додати ID Ім'я` — додати в базу\n"
+        "`очистити ID` — скинути профіль\n"
+        "`видати_монети ID сума` — бонус гравцю"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+# Додай обробку видачі монет в handle_msg...
 
 async def get_card(message: types.Message):
     uid = message.from_user.id
     now = time.time()
     
-    # Режим Бога для тебе (без очікування)
     if uid != MY_ID and (now - db.get_last_card_time(uid) < COOLDOWN):
-        await message.reply(f"⏳ Зачекай {int(COOLDOWN - (now - db.get_last_card_time(uid)))} сек.")
-        return
+        wait = int(COOLDOWN - (now - db.get_last_card_time(uid)))
+        return await message.reply(f"⏳ Зачекай ще {wait} сек.")
 
     target = db.get_random_user()
-    if not target: return
+    if not target: return await message.answer("📭 База порожня!")
     tid, tname = target
 
-    # Рідкість
-    import random
     r = random.random()
     if tid == MY_ID: rarity, bonus = "🛠 УНІКАЛЬНА", 100
     elif r < 0.05: rarity, bonus = "🟡 ЛЕГЕНДАРНА", 50
@@ -105,7 +131,6 @@ async def get_card(message: types.Message):
     db.add_to_collection(uid, tid, rarity)
     db.set_last_card_time(uid, now)
 
-    # Отримання фото
     photo = "https://i.imgur.com/KzS6CqC.png"
     try:
         p_photos = await bot.get_user_profile_photos(tid, limit=1)
@@ -113,11 +138,18 @@ async def get_card(message: types.Message):
             photo = p_photos.photos[0][-1].file_id
     except: pass 
 
-    caption = f"🌟 **Картка: {tname}**\n✨ Рідкість: {rarity}\n💰 Бонус: +{bonus}"
+    caption = f"🃏 **Знайдено картку: {tname}**\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n✨ Рідкість: {rarity}\n💰 Бонус: +{bonus} монет"
     await message.answer_photo(photo, caption=caption, parse_mode="Markdown")
+
+# Обов'язково додаємо підрахунок повідомлень
+@dp.message()
+async def global_handler(message: types.Message):
+    if not message.text or message.text.startswith('/'): return
+    db.update_user(message.from_user.id, message.from_user.full_name)
 
 async def main():
     keep_alive()
+    print("Привіт")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
